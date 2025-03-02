@@ -1,0 +1,68 @@
+<!-- popup.html - Extension popup interface -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Reader Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Voice Reader Assistant</h1>
+    
+    <div class="status-container">
+      <div id="status" class="status-indicator">Ready</div>
+      <button id="toggleBtn" class="toggle-button">Start Listening</button>
+    </div>
+    
+    <div class="commands-section">
+      <h2>Voice Commands</h2>
+      <ul>
+        <li><strong>"Read page"</strong> - Read entire page content</li>
+        <li><strong>"Read heading"</strong> - Read all headings</li>
+        <li><strong>"Read links"</strong> - Read all links</li>
+        <li><strong>"Navigate to [text]"</strong> - Find and focus on element</li>
+        <li><strong>"Click [text]"</strong> - Click on element containing text</li>
+        <li><strong>"Stop"</strong> - Stop reading</li>
+        <li><strong>"Help"</strong> - List available commands</li>
+      </ul>
+    </div>
+    
+    <div class="settings-section">
+      <h2>Settings</h2>
+      <div class="setting">
+        <label for="speechRate">Speech Rate:</label>
+        <input type="range" id="speechRate" min="0.5" max="2" step="0.1" value="1">
+        <span id="rateValue">1</span>
+      </div>
+      <div class="setting">
+        <label for="voiceSelect">Voice:</label>
+        <select id="voiceSelect"></select>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
+
+<!-- overlay.html - Injected UI overlay -->
+<div id="accessibilityOverlay" class="accessibility-overlay">
+  <div class="overlay-header">
+    <h2>Voice Assistant</h2>
+    <button id="minimizeOverlay" class="overlay-button">_</button>
+    <button id="closeOverlay" class="overlay-button">×</button>
+  </div>
+  <div class="overlay-content">
+    <div id="statusIndicator" class="status-indicator">
+      <div class="indicator-light"></div>
+      <span id="statusText">Ready</span>
+    </div>
+    <div id="transcription" class="transcription">
+      <p>Say "Help" for available commands</p>
+    </div>
+    <div id="readingProgress" class="reading-progress">
+      <div class="current-element"></div>
+    </div>
+  </div>
+</div>
