@@ -1,9 +1,8 @@
-// manifest.json - Extension configuration
 {
   "manifest_version": 3,
-  "name": "Voice Reader Accessibility Assistant",
+  "name": "Voice Accessibility Assistant",
   "version": "1.0",
-  "description": "Voice-controlled screen reader for any website",
+  "description": "Browser extension that helps disabled users navigate websites using voice commands",
   "permissions": ["activeTab", "storage", "scripting"],
   "action": {
     "default_popup": "popup.html",
@@ -13,16 +12,15 @@
       "128": "images/icon128.png"
     }
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["styles.css"]
-    }
-  ],
   "icons": {
     "16": "images/icon16.png",
     "48": "images/icon48.png",
     "128": "images/icon128.png"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
 }

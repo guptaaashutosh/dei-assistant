@@ -1,762 +1,384 @@
-// content.js - Main script injected into websites
+// content.js
+class VoiceAssistant {
+  constructor() {
+    this.isListening = false;
+    this.recognition = null;
+    this.speechSynthesis = window.speechSynthesis;
+    this.utterance = null;
+    this.settings = {
+      speechRate: 1.0,
+      voiceURI: null
+    };
+    this.setupVoiceRecognition();
+    this.createFeedbackUI();
 
-// ========================
-// CORE FUNCTIONALITY
-// ========================
+    // Listen for messages from popup
+    chrome.runtime.onMessage.addListener(this.handleMessages.bind(this));
 
-// Global variables
-let isListening = false;
-let isSpeaking = false;
-let currentUtterance = null;
-let recognition = null;
-let readingQueue = [];
-let currentSettings = {
-  speechRate: 1,
-  voiceURI: null,
-  highlightElements: true
-};
-
-// Initialize components
-function initVoiceAssistant() {
-  // Create overlay UI
-  createOverlayUI();
-
-  // Setup speech recognition
-  setupSpeechRecognition();
-
-  // Setup speech synthesis
-  setupSpeechSynthesis();
-
-  // Load user settings
-  loadSettings();
-
-  // Add keyboard shortcuts
-  setupKeyboardShortcuts();
-
-  // Listen for messages from popup
-  chrome.runtime.onMessage.addListener(handleMessages);
-}
-
-// ========================
-// SPEECH RECOGNITION
-// ========================
-
-function setupSpeechRecognition() {
-  // Check browser support
-  if (
-    !('webkitSpeechRecognition' in window) &&
-    !('SpeechRecognition' in window)
-  ) {
-    updateStatus('Speech recognition not supported in this browser', 'error');
-    return;
-  }
-
-  // Initialize speech recognition
-  recognition = new (window.SpeechRecognition ||
-    window.webkitSpeechRecognition)();
-  recognition.continuous = true;
-  recognition.interimResults = false;
-  recognition.lang = 'en-US'; // Default language, can be made configurable
-
-  // Setup event handlers
-  recognition.onstart = () => {
-    isListening = true;
-    updateStatus('Listening...', 'active');
-  };
-
-  recognition.onend = () => {
-    if (isListening) {
-      // Restart if it was supposed to be listening but stopped
-      recognition.start();
-    } else {
-      updateStatus('Stopped listening', 'inactive');
-    }
-  };
-
-  recognition.onresult = handleSpeechResult;
-
-  recognition.onerror = event => {
-    console.error('Speech recognition error:', event.error);
-    updateStatus(`Error: ${event.error}`, 'error');
-  };
-}
-
-function handleSpeechResult(event) {
-  const transcript = event.results[event.results.length - 1][0].transcript
-    .trim()
-    .toLowerCase();
-  updateTranscription(transcript);
-
-  // Process voice commands
-  processVoiceCommand(transcript);
-}
-
-function processVoiceCommand(command) {
-  // Core reading commands
-  if (command === 'read page') {
-    readPageContent();
-  } else if (command === 'read headings') {
-    readElementsByTag(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
-  } else if (command === 'read links') {
-    readElementsByTag(['a']);
-  } else if (command.startsWith('read paragraph')) {
-    readElementsByTag(['p']);
-  } else if (command === 'stop' || command === 'stop reading') {
-    stopReading();
-  } else if (command === 'pause') {
-    pauseReading();
-  } else if (command === 'resume') {
-    resumeReading();
-  }
-
-  // Navigation commands
-  else if (command.startsWith('navigate to ')) {
-    const target = command.replace('navigate to ', '');
-    navigateToElement(target);
-  } else if (command.startsWith('click ')) {
-    const target = command.replace('click ', '');
-    clickElement(target);
-  } else if (command.startsWith('scroll down')) {
-    window.scrollBy(0, 300);
-  } else if (command.startsWith('scroll up')) {
-    window.scrollBy(0, -300);
-  }
-
-  // Help and control commands
-  else if (command === 'help') {
-    readAvailableCommands();
-  } else if (command === 'stop listening') {
-    stopListening();
-  }
-}
-
-// ========================
-// TEXT-TO-SPEECH
-// ========================
-
-function setupSpeechSynthesis() {
-  if (!('speechSynthesis' in window)) {
-    updateStatus('Speech synthesis not supported in this browser', 'error');
-    return;
-  }
-
-  // Populate available voices once they're loaded
-  speechSynthesis.onvoiceschanged = () => {
-    const voices = speechSynthesis.getVoices();
-    // Send available voices to popup if needed
-    chrome.runtime.sendMessage({
-      action: 'voicesLoaded',
-      voices: voices.map(voice => ({
-        name: voice.name,
-        lang: voice.lang,
-        uri: voice.voiceURI
-      }))
+    // Check if we should auto-start (based on stored preference)
+    chrome.storage.local.get(['autoStart'], result => {
+      if (result.autoStart) {
+        // Delay startup announcement to ensure page is fully loaded
+        setTimeout(() => {
+          this.startListening();
+          this.announceStartup();
+        }, 1500);
+      }
     });
-  };
-}
+  }
 
-function speakText(text, options = {}) {
-  if (!text) return;
+  announceStartup() {
+    const message = 'Your web accessibility assistant has been started and is ready to help you, Please say "help" to assist you.';
+    this.speak(message);
+    this.showFeedback('AI Assistant activated', 'success');
+  }
 
-  // Create new utterance
-  const utterance = new SpeechSynthesisUtterance(text);
+  setupVoiceRecognition() {
+    try {
+      // Check if browser supports SpeechRecognition
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        this.showFeedback(
+          "Your browser doesn't support speech recognition",
+          'error'
+        );
+        return;
+      }
 
-  // Apply settings
-  utterance.rate = options.rate || currentSettings.speechRate;
+      this.recognition = new SpeechRecognition();
+      this.recognition.continuous = true;
+      this.recognition.interimResults = false;
+      this.recognition.lang = 'en-US'; // Default language
 
-  // Set voice if specified
-  if (options.voiceURI || currentSettings.voiceURI) {
-    const voices = speechSynthesis.getVoices();
-    const voice = voices.find(
-      v => v.voiceURI === (options.voiceURI || currentSettings.voiceURI)
+      // Handle recognition results
+      this.recognition.onresult = event => {
+        const transcript = event.results[event.results.length - 1][0].transcript
+          .trim()
+          .toLowerCase();
+        this.showFeedback(`Heard: ${transcript}`, 'success');
+        console.log('Voice recognized:', transcript);
+        this.processCommand(transcript);
+      };
+
+      // Handle errors
+      this.recognition.onerror = event => {
+        console.error('Speech recognition error:', event.error);
+        this.showFeedback(`Error: ${event.error}. Try again.`, 'error');
+
+        // If permission denied, guide the user
+        if (event.error === 'not-allowed') {
+          this.showFeedback(
+            'Microphone access denied. Please enable microphone permissions.',
+            'error'
+          );
+        }
+      };
+
+      // Restart recognition if it ends
+      this.recognition.onend = () => {
+        console.log('Speech recognition ended');
+        if (this.isListening) {
+          console.log('Restarting recognition...');
+          try {
+            this.recognition.start();
+            this.showFeedback('Listening again...', 'info');
+          } catch (e) {
+            console.error('Failed to restart recognition:', e);
+            this.isListening = false;
+            this.showFeedback(
+              'Voice recognition stopped due to an error',
+              'error'
+            );
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error setting up speech recognition:', error);
+      this.showFeedback('Failed to initialize speech recognition', 'error');
+    }
+  }
+
+  startListening() {
+    if (!this.recognition) {
+      this.setupVoiceRecognition();
+      if (!this.recognition) return;
+    }
+
+    try {
+      this.recognition.start();
+      this.isListening = true;
+      this.showFeedback(
+        "Voice Assistant activated. Try saying 'help' for commands.",
+        'success'
+      );
+      console.log('Voice recognition started');
+
+      // Save auto-start preference
+      chrome.storage.local.set({ autoStart: true });
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      this.showFeedback(
+        'Could not start voice recognition. Try refreshing the page.',
+        'error'
+      );
+    }
+  }
+
+  stopListening() {
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+        this.isListening = false;
+        this.showFeedback('Voice Assistant deactivated', 'info');
+        console.log('Voice recognition stopped');
+
+        // Clear auto-start preference
+        chrome.storage.local.set({ autoStart: false });
+      } catch (error) {
+        console.error('Error stopping speech recognition:', error);
+      }
+    }
+  }
+
+  processCommand(transcript) {
+    // Display the transcript for debugging
+    console.log('Processing command:', transcript);
+
+    // Check for exact commands first
+    if (this.commands[transcript]) {
+      this.commands[transcript]();
+      return;
+    }
+
+    // Check for commands that start with specific phrases
+    for (const [cmdPrefix, handler] of Object.entries(this.commands)) {
+      if (transcript.startsWith(cmdPrefix) && cmdPrefix !== transcript) {
+        const parameter = transcript.substring(cmdPrefix.length).trim();
+        handler(parameter);
+        return;
+      }
+    }
+
+    this.showFeedback(
+      `Command not recognized: "${transcript}". Try saying "help" for available commands.`,
+      'warning'
     );
-    if (voice) utterance.voice = voice;
   }
 
-  // Handle utterance events
-  utterance.onstart = () => {
-    isSpeaking = true;
-    if (options.element && currentSettings.highlightElements) {
-      highlightElement(options.element);
-    }
+  commands = {
+    'read page': this.readPage.bind(this),
+    'read headings': this.readHeadings.bind(this),
+    'navigate to': this.navigateTo.bind(this),
+    click: this.clickElement.bind(this),
+    'stop reading': this.stopReading.bind(this),
+    'scroll down': this.scrollDown.bind(this),
+    'scroll up': this.scrollUp.bind(this),
+    help: this.listCommands.bind(this)
   };
 
-  utterance.onend = () => {
-    isSpeaking = false;
-    removeHighlight();
+  // Command handlers
+  readPage() {
+    const text = document.body.innerText;
+    this.speak('Reading page content: ' + text);
+  }
 
-    // Speak next item in queue if available
-    if (readingQueue.length > 0) {
-      const nextItem = readingQueue.shift();
-      speakText(nextItem.text, nextItem.options);
-    } else {
-      updateStatus('Ready', 'inactive');
+  readHeadings() {
+    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    if (headings.length === 0) {
+      this.speak('No headings found on this page.');
+      return;
     }
-  };
 
-  // Store current utterance
-  currentUtterance = utterance;
-
-  // Speak the text
-  speechSynthesis.speak(utterance);
-
-  updateStatus('Speaking...', 'active');
-}
-
-function stopReading() {
-  speechSynthesis.cancel();
-  readingQueue = [];
-  isSpeaking = false;
-  removeHighlight();
-  updateStatus('Stopped reading', 'inactive');
-}
-
-function pauseReading() {
-  if (isSpeaking) {
-    speechSynthesis.pause();
-    updateStatus('Paused', 'paused');
-  }
-}
-
-function resumeReading() {
-  if (speechSynthesis.paused) {
-    speechSynthesis.resume();
-    updateStatus('Speaking...', 'active');
-  }
-}
-
-// ========================
-// READING FUNCTIONS
-// ========================
-
-function readPageContent() {
-  // Get the main content of the page
-  // This is a simplified approach and could be improved with more sophisticated content detection
-  const mainContent = getMainContent();
-
-  // Split content into manageable chunks
-  const paragraphs = getTextParagraphs(mainContent);
-
-  // Clear existing queue
-  readingQueue = [];
-
-  // Add each paragraph to the reading queue
-  paragraphs.forEach(paragraph => {
-    const text = extractReadableText(paragraph);
-    if (text.trim()) {
-      readingQueue.push({
-        text: text,
-        options: { element: paragraph }
-      });
-    }
-  });
-
-  // Start reading
-  if (readingQueue.length > 0) {
-    const firstItem = readingQueue.shift();
-    speakText(firstItem.text, firstItem.options);
-  } else {
-    speakText('No readable content found on this page.');
-  }
-}
-
-function readElementsByTag(tags) {
-  // Find all specified elements
-  let elements = [];
-  tags.forEach(tag => {
-    const foundElements = document.querySelectorAll(tag);
-    elements = [...elements, ...Array.from(foundElements)];
-  });
-
-  // Clear existing queue
-  readingQueue = [];
-
-  // Build reading queue
-  elements.forEach(element => {
-    const text = extractReadableText(element);
-    if (text.trim()) {
-      readingQueue.push({
-        text: text,
-        options: { element: element }
-      });
-    }
-  });
-
-  // Start reading
-  if (readingQueue.length > 0) {
-    const firstItem = readingQueue.shift();
-    speakText(firstItem.text, firstItem.options);
-  } else {
-    speakText(`No ${tags.join(' or ')} elements found on this page.`);
-  }
-}
-
-// ========================
-// NAVIGATION FUNCTIONS
-// ========================
-
-function navigateToElement(targetText) {
-  // Find elements containing the target text
-  const elements = findElementsByText(targetText);
-
-  if (elements.length > 0) {
-    // Focus on the first matching element
-    elements[0].focus();
-
-    // Scroll element into view
-    elements[0].scrollIntoView({
-      behavior: 'smooth',
-      block: 'center'
+    let headingText = 'Page headings: ';
+    headings.forEach((heading, index) => {
+      headingText += `${index + 1}. ${heading.innerText}. `;
     });
 
-    // Highlight the element
-    highlightElement(elements[0]);
-
-    // Announce success
-    speakText(`Navigated to ${targetText}`);
-  } else {
-    speakText(`Could not find ${targetText} on this page.`);
-  }
-}
-
-function clickElement(targetText) {
-  // Find elements containing the target text
-  const elements = findElementsByText(targetText);
-
-  if (elements.length > 0) {
-    // Click the first matching element
-    elements[0].click();
-
-    // Announce success
-    speakText(`Clicked on ${targetText}`);
-  } else {
-    speakText(`Could not find ${targetText} on this page.`);
-  }
-}
-
-// ========================
-// HELPER FUNCTIONS
-// ========================
-
-function getMainContent() {
-  // Try to find main content area using common selectors
-  // This is a simplified approach and could be improved
-  const contentSelectors = [
-    'main',
-    'article',
-    '#content',
-    '.content',
-    '#main',
-    '.main'
-  ];
-
-  for (const selector of contentSelectors) {
-    const element = document.querySelector(selector);
-    if (element) return element;
+    this.speak(headingText);
   }
 
-  // Fallback to body if no main content area found
-  return document.body;
-}
+  navigateTo(target) {
+    if (!target) return;
 
-function getTextParagraphs(container) {
-  // Get all text-containing elements
-  const textElements = [
-    ...container.querySelectorAll('p'),
-    ...container.querySelectorAll('h1, h2, h3, h4, h5, h6'),
-    ...container.querySelectorAll('li')
-  ];
-
-  return textElements;
-}
-
-function extractReadableText(element) {
-  // Get visible text content with special handling for certain elements
-  if (!element) return '';
-
-  // Special handling for links and buttons
-  if (element.tagName === 'A') {
-    return `Link: ${element.textContent.trim()}`;
-  } else if (element.tagName === 'BUTTON') {
-    return `Button: ${element.textContent.trim()}`;
-  } else if (element.tagName.match(/^H[1-6]$/)) {
-    return `Heading ${element.tagName[1]}: ${element.textContent.trim()}`;
-  }
-
-  // Get element's direct text, excluding nested elements' text
-  let text = '';
-  for (const node of element.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      text += node.textContent.trim() + ' ';
-    }
-  }
-
-  // If no direct text, use all text
-  if (!text.trim()) {
-    text = element.textContent.trim();
-  }
-
-  return text;
-}
-
-function findElementsByText(targetText) {
-  const lowerTarget = targetText.toLowerCase();
-
-  // Elements that can be interacted with
-  const interactiveElements = [
-    ...document.querySelectorAll('a'),
-    ...document.querySelectorAll('button'),
-    ...document.querySelectorAll('input'),
-    ...document.querySelectorAll('select'),
-    ...document.querySelectorAll('[role="button"]')
-  ];
-
-  // Filter elements containing the target text
-  return interactiveElements.filter(element => {
-    const text = element.textContent.toLowerCase();
-    const value = element.value ? element.value.toLowerCase() : '';
-    const placeholder = element.placeholder
-      ? element.placeholder.toLowerCase()
-      : '';
-    const ariaLabel = element.getAttribute('aria-label')
-      ? element.getAttribute('aria-label').toLowerCase()
-      : '';
-
-    return (
-      text.includes(lowerTarget) ||
-      value.includes(lowerTarget) ||
-      placeholder.includes(lowerTarget) ||
-      ariaLabel.includes(lowerTarget)
+    const links = Array.from(document.querySelectorAll('a'));
+    const closestLink = links.find(link =>
+      link.innerText.toLowerCase().includes(target.toLowerCase())
     );
-  });
-}
 
-function highlightElement(element) {
-  if (!element) return;
-
-  // Remove any existing highlights
-  removeHighlight();
-
-  // Add highlight class
-  element.classList.add('voice-reader-highlight');
-
-  // If element is not in viewport, scroll to it
-  const rect = element.getBoundingClientRect();
-  const isInViewport =
-    rect.top >= 0 &&
-    rect.left >= 0 &&
-    rect.bottom <= window.innerHeight &&
-    rect.right <= window.innerWidth;
-
-  if (!isInViewport) {
-    element.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center'
-    });
-  }
-}
-
-function removeHighlight() {
-  // Remove highlight from all elements
-  document.querySelectorAll('.voice-reader-highlight').forEach(el => {
-    el.classList.remove('voice-reader-highlight');
-  });
-}
-
-// ========================
-// UI FUNCTIONS
-// ========================
-
-function createOverlayUI() {
-  // Create overlay container
-  const overlay = document.createElement('div');
-  overlay.id = 'accessibilityOverlay';
-  overlay.className = 'accessibility-overlay';
-
-  // Add HTML content
-  overlay.innerHTML = `
-    <div class="overlay-header">
-      <h2>Voice Assistant</h2>
-      <button id="minimizeOverlay" class="overlay-button">_</button>
-      <button id="closeOverlay" class="overlay-button">×</button>
-    </div>
-    <div class="overlay-content">
-      <div id="statusIndicator" class="status-indicator">
-        <div class="indicator-light"></div>
-        <span id="statusText">Ready</span>
-      </div>
-      <div id="transcription" class="transcription">
-        <p>Say "Help" for available commands</p>
-      </div>
-      <div id="readingProgress" class="reading-progress">
-        <div class="current-element"></div>
-      </div>
-    </div>
-  `;
-
-  // Add to page
-  document.body.appendChild(overlay);
-
-  // Add event listeners
-  document
-    .getElementById('minimizeOverlay')
-    .addEventListener('click', minimizeOverlay);
-  document
-    .getElementById('closeOverlay')
-    .addEventListener('click', closeOverlay);
-
-  // Add styles
-  addOverlayStyles();
-}
-
-function updateStatus(message, state) {
-  const statusElement = document.getElementById('statusText');
-  const indicatorElement = document.querySelector('.indicator-light');
-
-  if (statusElement) {
-    statusElement.textContent = message;
-  }
-
-  if (indicatorElement) {
-    // Remove existing state classes
-    indicatorElement.classList.remove('active', 'inactive', 'error', 'paused');
-
-    // Add new state class
-    if (state) {
-      indicatorElement.classList.add(state);
+    if (closestLink) {
+      this.speak(`Navigating to ${closestLink.innerText}`);
+      setTimeout(() => {
+        closestLink.click();
+      }, 2000);
+    } else {
+      this.speak(`Could not find a link matching "${target}"`);
     }
   }
-}
 
-function updateTranscription(text) {
-  const transcriptionElement = document.getElementById('transcription');
+  clickElement(target) {
+    if (!target) return;
 
-  if (transcriptionElement) {
-    transcriptionElement.innerHTML = `<p>${text}</p>`;
+    const elements = Array.from(
+      document.querySelectorAll(
+        'button, [role="button"], input[type="submit"], input[type="button"]'
+      )
+    );
+    const matchingElement = elements.find(
+      el =>
+        el.innerText?.toLowerCase().includes(target.toLowerCase()) ||
+        el.value?.toLowerCase().includes(target.toLowerCase()) ||
+        el
+          .getAttribute('aria-label')
+          ?.toLowerCase()
+          .includes(target.toLowerCase())
+    );
+
+    if (matchingElement) {
+      this.speak(
+        `Clicking ${
+          matchingElement.innerText || matchingElement.value || 'element'
+        }`
+      );
+      setTimeout(() => {
+        matchingElement.click();
+      }, 1000);
+    } else {
+      this.speak(`Could not find a clickable element matching "${target}"`);
+    }
   }
-}
 
-function minimizeOverlay() {
-  const overlay = document.getElementById('accessibilityOverlay');
-  overlay.classList.add('minimized');
-}
+  scrollDown() {
+    window.scrollTo({
+      top: window.scrollY + window.innerHeight * 0.7,
+      behavior: 'smooth'
+    });
+    this.speak('Scrolling down');
+  }
 
-function closeOverlay() {
-  stopListening();
-  stopReading();
+  scrollUp() {
+    window.scrollTo({ top: window.scrollY - window.innerHeight * 0.7, behavior: 'auto' });
+    this.speak('Scrolling up');
+  }
 
-  const overlay = document.getElementById('accessibilityOverlay');
-  overlay.style.display = 'none';
-}
+  stopReading() {
+    if (this.speechSynthesis.speaking) {
+      this.speechSynthesis.cancel();
+      this.showFeedback('Stopped reading', 'info');
+    }
+  }
 
-function addOverlayStyles() {
-  const styleSheet = document.createElement('style');
-  styleSheet.textContent = `
-    .accessibility-overlay {
+  listCommands() {
+    const commandList = Object.keys(this.commands).join(', ');
+    this.speak(`Available commands: ${commandList}`);
+    this.showFeedback(`Available commands: ${commandList}`, 'info', 10000);
+  }
+
+  speak(text) {
+    // Cancel any ongoing speech
+    if (this.speechSynthesis.speaking) {
+      this.speechSynthesis.cancel();
+    }
+
+    this.utterance = new SpeechSynthesisUtterance(text);
+    this.utterance.rate = this.settings.speechRate;
+
+    // Set voice if specified
+    if (this.settings.voiceURI) {
+      const voices = this.speechSynthesis.getVoices();
+      const voice = voices.find(v => v.voiceURI === this.settings.voiceURI);
+      if (voice) {
+        this.utterance.voice = voice;
+      }
+    }
+
+    this.speechSynthesis.speak(this.utterance);
+  }
+
+  createFeedbackUI() {
+    const feedbackDiv = document.createElement('div');
+    feedbackDiv.id = 'voice-assistant-feedback';
+    feedbackDiv.style.cssText = `
       position: fixed;
       bottom: 20px;
       right: 20px;
-      width: 300px;
-      background-color: #fff;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-      z-index: 9999;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 10px 15px;
+      border-radius: 5px;
+      z-index: 10000;
       font-family: Arial, sans-serif;
-      transition: all 0.3s ease;
-    }
-    
-    .accessibility-overlay.minimized {
-      height: 40px;
-      overflow: hidden;
-    }
-    
-    .overlay-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
-      background-color: #4285f4;
-      color: white;
-      border-top-left-radius: 8px;
-      border-top-right-radius: 8px;
-    }
-    
-    .overlay-header h2 {
-      margin: 0;
-      font-size: 16px;
-    }
-    
-    .overlay-button {
-      background: none;
-      border: none;
-      color: white;
-      font-size: 18px;
-      cursor: pointer;
-      margin-left: 8px;
-    }
-    
-    .overlay-content {
-      padding: 12px;
-    }
-    
-    .status-indicator {
-      display: flex;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    
-    .indicator-light {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      margin-right: 8px;
-      background-color: #ccc;
-    }
-    
-    .indicator-light.active {
-      background-color: #4caf50;
-      box-shadow: 0 0 5px #4caf50;
-    }
-    
-    .indicator-light.inactive {
-      background-color: #ccc;
-    }
-    
-    .indicator-light.error {
-      background-color: #f44336;
-      box-shadow: 0 0 5px #f44336;
-    }
-    
-    .indicator-light.paused {
-      background-color: #ff9800;
-      box-shadow: 0 0 5px #ff9800;
-    }
-    
-    .transcription {
-      padding: 8px;
-      background-color: #f5f5f5;
-      border-radius: 4px;
-      margin-bottom: 12px;
-      min-height: 60px;
-      max-height: 100px;
-      overflow-y: auto;
-    }
-    
-    .voice-reader-highlight {
-      outline: 3px solid #4285f4 !important;
-      background-color: rgba(66, 133, 244, 0.1) !important;
-    }
-  `;
+      max-width: 300px;
+      display: none;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    `;
+    document.body.appendChild(feedbackDiv);
+  }
 
-  document.head.appendChild(styleSheet);
-}
+  showFeedback(message, type = 'info', duration = 3000) {
+    const feedbackDiv = document.getElementById('voice-assistant-feedback');
+    if (!feedbackDiv) return;
 
-function toggleVoiceAssistant() {
-  if (isListening) {
-    stopListening();
-  } else {
-    startListening();
+    // Set colors based on message type
+    let bgColor;
+    switch (type) {
+      case 'success':
+        bgColor = 'rgba(40, 167, 69, 0.9)';
+        break;
+      case 'error':
+        bgColor = 'rgba(220, 53, 69, 0.9)';
+        break;
+      case 'warning':
+        bgColor = 'rgba(255, 193, 7, 0.9)';
+        break;
+      default:
+        bgColor = 'rgba(0, 0, 0, 0.8)';
+    }
+
+    feedbackDiv.style.backgroundColor = bgColor;
+    feedbackDiv.textContent = message;
+    feedbackDiv.style.display = 'block';
+
+    // Hide the message after duration
+    setTimeout(() => {
+      feedbackDiv.style.display = 'none';
+    }, duration);
+  }
+
+  handleMessages(message, sender, sendResponse) {
+    console.log('Message received:', message);
+
+    switch (message.action) {
+      case 'startAssistant':
+        this.startListening();
+        // Announce when manually started
+        this.announceStartup();
+        break;
+      case 'stopAssistant':
+        this.stopListening();
+        break;
+      case 'updateSettings':
+        this.settings = { ...this.settings, ...message.settings };
+        break;
+      case 'getVoices':
+        const voices = this.speechSynthesis.getVoices();
+        sendResponse({
+          voices: voices.map(v => ({
+            name: v.name,
+            lang: v.lang,
+            uri: v.voiceURI
+          }))
+        });
+        break;
+      case 'getStatus':
+        sendResponse({ isListening: this.isListening });
+        break;
+      default:
+        console.log('Unknown action:', message.action);
+    }
   }
 }
 
-function startListening() {
-  if (!recognition) return;
-
-  recognition.start();
-  isListening = true;
-}
-
-function stopListening() {
-  if (!recognition) return;
-
-  recognition.stop();
-  isListening = false;
-  updateStatus('Ready', 'inactive');
-}
-
-function readAvailableCommands() {
-  const commands = [
-    'Available commands:',
-    'Read page - Reads the main content of the page',
-    'Read headings - Reads all headings on the page',
-    'Read links - Reads all links on the page',
-    'Read paragraph - Reads all paragraphs on the page',
-    'Navigate to [text] - Navigates to element containing the text',
-    'Click [text] - Clicks element containing the text',
-    'Scroll down - Scrolls page down',
-    'Scroll up - Scrolls page up',
-    'Stop - Stops reading',
-    'Pause - Pauses reading',
-    'Resume - Resumes reading',
-    'Stop listening - Stops voice recognition',
-    'Help - Lists available commands'
-  ].join('. ');
-
-  speakText(commands);
-}
-
-// ========================
-// SETTINGS & COMMUNICATION
-// ========================
-
-function loadSettings() {
-  chrome.storage.sync.get(
-    {
-      speechRate: 1,
-      voiceURI: null,
-      highlightElements: true
-    },
-    function (items) {
-      currentSettings = items;
-    }
-  );
-}
-
-function handleMessages(message, sender, sendResponse) {
-  if (message.action === 'startAssistant') {
-    if (!document.getElementById('accessibilityOverlay')) {
-      createOverlayUI();
-    }
-    document.getElementById('accessibilityOverlay').style.display = 'block';
-    startListening();
-  } else if (message.action === 'stopAssistant') {
-    stopListening();
-    stopReading();
-  } else if (message.action === 'updateSettings') {
-    currentSettings = { ...currentSettings, ...message.settings };
-    // Save to storage
-    chrome.storage.sync.set(message.settings);
-  } else if (message.action === 'getVoices') {
-    const voices = speechSynthesis.getVoices();
-    sendResponse({
-      voices: voices.map(voice => ({
-        name: voice.name,
-        lang: voice.lang,
-        uri: voice.voiceURI
-      }))
-    });
-    return true; // Indicates async response
-  }
-}
-
-function setupKeyboardShortcuts() {
-  document.addEventListener('keydown', event => {
-    // Alt+Shift+V to toggle voice assistant
-    if (event.altKey && event.shiftKey && event.key === 'V') {
-      toggleVoiceAssistant();
-    }
-
-    // Alt+Shift+S to stop reading
-    if (event.altKey && event.shiftKey && event.key === 'S') {
-      stopReading();
-    }
-  });
-}
-
-// Initialize when document is fully loaded
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initVoiceAssistant);
-} else {
-  initVoiceAssistant();
-}
+// Initialize the voice assistant when the page loads
+const voiceAssistant = new VoiceAssistant();
+console.log('Voice Assistant initialized');

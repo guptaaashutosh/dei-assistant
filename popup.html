@@ -1,68 +1,68 @@
-<!-- popup.html - Extension popup interface -->
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Reader Assistant</title>
-  <link rel="stylesheet" href="popup.css">
+  <title>Voice Accessibility Assistant</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="container">
-    <h1>Voice Reader Assistant</h1>
+    <h1>Voice Assistant</h1>
     
-    <div class="status-container">
-      <div id="status" class="status-indicator">Ready</div>
-      <button id="toggleBtn" class="toggle-button">Start Listening</button>
-    </div>
-    
-    <div class="commands-section">
-      <h2>Voice Commands</h2>
-      <ul>
-        <li><strong>"Read page"</strong> - Read entire page content</li>
-        <li><strong>"Read heading"</strong> - Read all headings</li>
-        <li><strong>"Read links"</strong> - Read all links</li>
-        <li><strong>"Navigate to [text]"</strong> - Find and focus on element</li>
-        <li><strong>"Click [text]"</strong> - Click on element containing text</li>
-        <li><strong>"Stop"</strong> - Stop reading</li>
-        <li><strong>"Help"</strong> - List available commands</li>
-      </ul>
-    </div>
-    
-    <div class="settings-section">
-      <h2>Settings</h2>
-      <div class="setting">
-        <label for="speechRate">Speech Rate:</label>
-        <input type="range" id="speechRate" min="0.5" max="2" step="0.1" value="1">
-        <span id="rateValue">1</span>
+    <div id="compatWarning" style="display: none;">
+      <div class="alert alert-error">
+        <p>Your browser doesn't support speech recognition. Please use Chrome, Edge, or another compatible browser.</p>
       </div>
-      <div class="setting">
-        <label for="voiceSelect">Voice:</label>
-        <select id="voiceSelect"></select>
+    </div>
+    
+    <div id="controlPanel">
+      <div class="status-container">
+        <span id="statusText">Voice assistant is inactive</span>
+      </div>
+      
+      <div class="control-group">
+        <button id="toggleBtn" class="primary-button">Start Listening</button>
+        <button id="helpBtn" class="secondary-button">Help</button>
+      </div>
+      
+      <div id="helpPanel" style="display: none;">
+        <h3>Voice Commands</h3>
+        <ul>
+          <li><strong>"read page"</strong> - Reads the page content</li>
+          <li><strong>"read headings"</strong> - Reads heading elements</li>
+          <li><strong>"navigate to [text]"</strong> - Clicks a link containing [text]</li>
+          <li><strong>"click [text]"</strong> - Clicks a button containing [text]</li>
+          <li><strong>"scroll down/up"</strong> - Scrolls the page</li>
+          <li><strong>"stop reading"</strong> - Stops speech output</li>
+          <li><strong>"help"</strong> - Lists available commands</li>
+        </ul>
+      </div>
+      
+      <div class="settings-group">
+        <h3>Settings</h3>
+        
+        <div class="setting-item">
+          <label for="speechRate">Speech Rate: <span id="rateValue">1.0</span></label>
+          <input type="range" id="speechRate" min="0.5" max="2" step="0.1" value="1.0">
+        </div>
+        
+        <div class="setting-item">
+          <label for="voiceSelect">Voice:</label>
+          <select id="voiceSelect">
+            <option value="">Loading voices...</option>
+          </select>
+        </div>
+        
+        <div class="setting-item checkbox-item">
+          <input type="checkbox" id="autoStartToggle">
+          <label for="autoStartToggle">Start automatically when page loads</label>
+        </div>
+      </div>
+      
+      <div class="footer">
+        <p>Make sure you've allowed microphone access when prompted</p>
       </div>
     </div>
   </div>
   <script src="popup.js"></script>
 </body>
 </html>
-
-<!-- overlay.html - Injected UI overlay -->
-<div id="accessibilityOverlay" class="accessibility-overlay">
-  <div class="overlay-header">
-    <h2>Voice Assistant</h2>
-    <button id="minimizeOverlay" class="overlay-button">_</button>
-    <button id="closeOverlay" class="overlay-button">×</button>
-  </div>
-  <div class="overlay-content">
-    <div id="statusIndicator" class="status-indicator">
-      <div class="indicator-light"></div>
-      <span id="statusText">Ready</span>
-    </div>
-    <div id="transcription" class="transcription">
-      <p>Say "Help" for available commands</p>
-    </div>
-    <div id="readingProgress" class="reading-progress">
-      <div class="current-element"></div>
-    </div>
-  </div>
-</div>
