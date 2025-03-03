@@ -1,68 +1,33 @@
 <!DOCTYPE html>
-<html>
-<head>
-  <title>Voice Accessibility Assistant</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <div class="container">
-    <h1>Voice Assistant</h1>
-    
-    <div id="compatWarning" style="display: none;">
-      <div class="alert alert-error">
-        <p>Your browser doesn't support speech recognition. Please use Chrome, Edge, or another compatible browser.</p>
-      </div>
-    </div>
-    
-    <div id="controlPanel">
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice Assistant</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Voice Assistant</h1>
       <div class="status-container">
         <span id="statusText">Voice assistant is inactive</span>
       </div>
-      
       <div class="control-group">
         <button id="toggleBtn" class="primary-button">Start Listening</button>
         <button id="helpBtn" class="secondary-button">Help</button>
       </div>
-      
-      <div id="helpPanel" style="display: none;">
-        <h3>Voice Commands</h3>
-        <ul>
-          <li><strong>"read page"</strong> - Reads the page content</li>
-          <li><strong>"read headings"</strong> - Reads heading elements</li>
-          <li><strong>"navigate to [text]"</strong> - Clicks a link containing [text]</li>
-          <li><strong>"click [text]"</strong> - Clicks a button containing [text]</li>
-          <li><strong>"scroll down/up"</strong> - Scrolls the page</li>
-          <li><strong>"stop reading"</strong> - Stops speech output</li>
-          <li><strong>"help"</strong> - Lists available commands</li>
-        </ul>
+      <div class="input-group">
+        <input
+          type="text"
+          id="commandInput"
+          placeholder="Type your command here..."
+        />
+        <button id="submitCommand" class="primary-button">Submit</button>
       </div>
-      
-      <div class="settings-group">
-        <h3>Settings</h3>
-        
-        <div class="setting-item">
-          <label for="speechRate">Speech Rate: <span id="rateValue">1.0</span></label>
-          <input type="range" id="speechRate" min="0.5" max="2" step="0.1" value="1.0">
-        </div>
-        
-        <div class="setting-item">
-          <label for="voiceSelect">Voice:</label>
-          <select id="voiceSelect">
-            <option value="">Loading voices...</option>
-          </select>
-        </div>
-        
-        <div class="setting-item checkbox-item">
-          <input type="checkbox" id="autoStartToggle">
-          <label for="autoStartToggle">Start automatically when page loads</label>
-        </div>
-      </div>
-      
       <div class="footer">
         <p>Make sure you've allowed microphone access when prompted</p>
       </div>
     </div>
-  </div>
-  <script src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

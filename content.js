@@ -1,4 +1,4 @@
-// content.js
+
 class VoiceAssistant {
   constructor() {
     this.isListening = false;
@@ -7,7 +7,12 @@ class VoiceAssistant {
     this.utterance = null;
     this.settings = {
       speechRate: 1.0,
-      voiceURI: null
+      voiceURI: null,
+      apiChoice: '',
+      apiKey: '',
+      useAI: true,
+      visionApiKey: '', 
+      apiSecret: ''
     };
     this.setupVoiceRecognition();
     this.createFeedbackUI();
@@ -16,7 +21,11 @@ class VoiceAssistant {
     chrome.runtime.onMessage.addListener(this.handleMessages.bind(this));
 
     // Check if we should auto-start (based on stored preference)
-    chrome.storage.local.get(['autoStart'], result => {
+    chrome.storage.local.get(['autoStart', 'settings'], result => {
+      if (result.settings) {
+        this.settings = { ...this.settings, ...result.settings };
+      }
+
       if (result.autoStart) {
         // Delay startup announcement to ensure page is fully loaded
         setTimeout(() => {
@@ -28,14 +37,14 @@ class VoiceAssistant {
   }
 
   announceStartup() {
-    const message = 'Your web accessibility assistant has been started and is ready to help you, Please say "help" to assist you.';
-    this.speak(message);
+    this.speak(
+      'Your AI assistant has been started and is ready to help you navigate this website.'
+    );
     this.showFeedback('AI Assistant activated', 'success');
   }
 
   setupVoiceRecognition() {
     try {
-      // Check if browser supports SpeechRecognition
       const SpeechRecognition =
         window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -47,50 +56,26 @@ class VoiceAssistant {
       }
 
       this.recognition = new SpeechRecognition();
-      this.recognition.continuous = true;
+      this.recognition.continuous = false;
       this.recognition.interimResults = false;
-      this.recognition.lang = 'en-US'; // Default language
+      this.recognition.lang = 'en-US';
 
-      // Handle recognition results
       this.recognition.onresult = event => {
-        const transcript = event.results[event.results.length - 1][0].transcript
-          .trim()
-          .toLowerCase();
-        this.showFeedback(`Heard: ${transcript}`, 'success');
-        console.log('Voice recognized:', transcript);
-        this.processCommand(transcript);
+        const rawTranscript =
+          event.results[event.results.length - 1][0].transcript.trim();
+        this.processCommand(rawTranscript.toLowerCase());
       };
 
-      // Handle errors
       this.recognition.onerror = event => {
         console.error('Speech recognition error:', event.error);
         this.showFeedback(`Error: ${event.error}. Try again.`, 'error');
-
-        // If permission denied, guide the user
-        if (event.error === 'not-allowed') {
-          this.showFeedback(
-            'Microphone access denied. Please enable microphone permissions.',
-            'error'
-          );
-        }
       };
 
-      // Restart recognition if it ends
       this.recognition.onend = () => {
-        console.log('Speech recognition ended');
         if (this.isListening) {
-          console.log('Restarting recognition...');
-          try {
+          setTimeout(() => {
             this.recognition.start();
-            this.showFeedback('Listening again...', 'info');
-          } catch (e) {
-            console.error('Failed to restart recognition:', e);
-            this.isListening = false;
-            this.showFeedback(
-              'Voice recognition stopped due to an error',
-              'error'
-            );
-          }
+          }, 300);
         }
       };
     } catch (error) {
@@ -99,59 +84,14 @@ class VoiceAssistant {
     }
   }
 
-  startListening() {
-    if (!this.recognition) {
-      this.setupVoiceRecognition();
-      if (!this.recognition) return;
-    }
-
-    try {
-      this.recognition.start();
-      this.isListening = true;
-      this.showFeedback(
-        "Voice Assistant activated. Try saying 'help' for commands.",
-        'success'
-      );
-      console.log('Voice recognition started');
-
-      // Save auto-start preference
-      chrome.storage.local.set({ autoStart: true });
-    } catch (error) {
-      console.error('Error starting speech recognition:', error);
-      this.showFeedback(
-        'Could not start voice recognition. Try refreshing the page.',
-        'error'
-      );
-    }
-  }
-
-  stopListening() {
-    if (this.recognition) {
-      try {
-        this.recognition.stop();
-        this.isListening = false;
-        this.showFeedback('Voice Assistant deactivated', 'info');
-        console.log('Voice recognition stopped');
-
-        // Clear auto-start preference
-        chrome.storage.local.set({ autoStart: false });
-      } catch (error) {
-        console.error('Error stopping speech recognition:', error);
-      }
-    }
-  }
-
   processCommand(transcript) {
-    // Display the transcript for debugging
     console.log('Processing command:', transcript);
 
-    // Check for exact commands first
     if (this.commands[transcript]) {
       this.commands[transcript]();
       return;
     }
 
-    // Check for commands that start with specific phrases
     for (const [cmdPrefix, handler] of Object.entries(this.commands)) {
       if (transcript.startsWith(cmdPrefix) && cmdPrefix !== transcript) {
         const parameter = transcript.substring(cmdPrefix.length).trim();
@@ -175,12 +115,147 @@ class VoiceAssistant {
     'scroll down': this.scrollDown.bind(this),
     'scroll up': this.scrollUp.bind(this),
     help: this.listCommands.bind(this)
+
   };
 
-  // Command handlers
-  readPage() {
-    const text = document.body.innerText;
-    this.speak('Reading page content: ' + text);
+  getVisibleText(limit) {
+    const bodyText = document.body.innerText;
+    const visibleText = bodyText.substring(0, limit); // Limit the text to a certain length
+    return visibleText;
+  }
+
+  async summarizeText(prompt) {
+    try {
+      const response = await fetch(
+        'http://localhost:11434/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'deepseek-r1:1.5b',
+            messages: [{ role: 'user', content: prompt }]
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+
+      console.log('response : ', response);
+      const data = await response.json();
+      console.log('data  : ', data);
+      return data.choices[0].message.content; // Adjust based on the response structure
+    } catch (error) {
+      console.error('Error querying DeepSeek:', error);
+      return 'Error querying the model. Please try again later.';
+    }
+  }
+
+  async readPage() {
+    // Select relevant elements
+    const headings = Array.from(document.querySelectorAll('h1, h2, h3'));
+    const paragraphs = Array.from(document.querySelectorAll('p'));
+
+    // Combine text from headings and paragraphs
+    let combinedText = '';
+
+    // Add headings to the combined text
+    headings.forEach(heading => {
+      combinedText += heading.innerText + '\n'; // Add a newline for better readability
+    });
+
+    // Add paragraphs to the combined text
+    paragraphs.forEach(paragraph => {
+      combinedText += paragraph.innerText + '\n'; // Add a newline for better readability
+    });
+
+    // Limit the text to a certain length
+    const visibleText = combinedText.substring(0, 1000);
+
+    const summarizedText = await this.summarizeText(visibleText);
+
+    // Speak the summarized text
+    if (summarizedText) {
+      this.speak(summarizedText);
+      console.log('Summarized text:', summarizedText);
+    } else {
+      this.speak('No useful content found on this page.');
+    }
+
+    // this.describeImagesOnPage();
+  }
+
+  async describeImagesOnPage() {
+    this.showFeedback('Looking for images to describe...', 'info');
+    this.speak('Looking for images to describe');
+
+    const images = Array.from(document.querySelectorAll('img')).filter(
+      img => img.complete && img.naturalHeight !== 0
+    );
+    if (images.length === 0) {
+      this.speak('No images found on this page.');
+      return;
+    }
+
+    for (const img of images) {
+      const base64Image = await this.getImageAsBase64(img);
+      const description = await this.getImageDescription(base64Image);
+      this.speak(description);
+    }
+  }
+
+  async getImageAsBase64(img) {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const base64Data = canvas.toDataURL('image/jpeg').split(',')[1];
+      resolve(base64Data);
+    });
+  }
+
+  async getImageDescription(imageBase64) {
+    if (
+      this.settings.visionApiChoice === 'imagga' &&
+      this.settings.visionApiKey &&
+      this.settings.apiSecret
+    ) {
+      return this.getImaggaDescription(imageBase64);
+    } else {
+      return 'No image description available.';
+    }
+  }
+
+  async getImaggaDescription(imageBase64) {
+    const apiKey = this.settings.visionApiKey; // Your Imagga API key
+    const apiSecret = this.settings.apiSecret; // Your Imagga API secret
+    const url =
+      'https://api.imagga.com/v2/tags?image_url=' +
+      encodeURIComponent(`data:image/jpeg;base64,${imageBase64}`);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: 'Basic ' + btoa(`${apiKey}:${apiSecret}`)
+        }
+      });
+      c;
+      const data = await response.json();
+      if (data.result && data.result.tags) {
+        const tags = data.result.tags.map(tag => tag.tag).join(', ');
+        return `This image contains: ${tags}.`;
+      }
+      return 'No description available for this image.';
+    } catch (error) {
+      console.error('Imagga API Error:', error);
+      return 'Error retrieving image description.';
+    }
   }
 
   readHeadings() {
@@ -257,13 +332,17 @@ class VoiceAssistant {
   }
 
   scrollUp() {
-    window.scrollTo({ top: window.scrollY - window.innerHeight * 0.7, behavior: 'auto' });
+    window.scrollTo({
+      top: window.scrollY - window.innerHeight * 0.7,
+      behavior: 'auto'
+    });
     this.speak('Scrolling up');
   }
 
   stopReading() {
     if (this.speechSynthesis.speaking) {
       this.speechSynthesis.cancel();
+      this.speak('Stop reading');
       this.showFeedback('Stopped reading', 'info');
     }
   }
@@ -275,6 +354,7 @@ class VoiceAssistant {
   }
 
   speak(text) {
+    console.log('Speaking:', text);
     // Cancel any ongoing speech
     if (this.speechSynthesis.speaking) {
       this.speechSynthesis.cancel();
@@ -372,6 +452,10 @@ class VoiceAssistant {
         break;
       case 'getStatus':
         sendResponse({ isListening: this.isListening });
+        break;
+      case 'processCommand': // Add this case
+        const command = message.command.toLowerCase();
+        this.processCommand(command); // Call the processCommand method
         break;
       default:
         console.log('Unknown action:', message.action);
